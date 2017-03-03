@@ -1,86 +1,74 @@
-jwt
-===
-
-Apex implementation of JWT and JWT Bearer flow.   Requires Summer 14 release for RSA-SHA256 support.
-
-
-#Unsigned JWT
+#Install JWT Apex classes
 ```
-JWT jwt = new JWT('none');
-jwt.iss = 'your issuer';
-jwt.sub = 'some subject';
-jwt.aud = 'some audience';
-token = jwt.issue();
+Install JWT.apex and JWTBearer.apex from https://github.com/salesforceidentity/jwt
+Install Vision.apex and HttpFormBuilder.apex
 ```
 
-#HMAC256 Signed JWT
-```
-JWT jwt = new JWT('HS256');
-jwt.privateKey = 'base64 encoded secret';
-jwt.iss = 'your issuer';
-jwt.sub = 'some subject';
-jwt.aud = 'some audience';
-token = jwt.issue();        
+#Visualforce Page example
+```java
+public class VisionController {
+    // You can upload the `predictive_services.pem` into your Salesforce org as `File` sObject and read it as below
+    public String getAccessToken() {
+        // Ignore the File upload part and "jwt.pkcs" if you used a Salesforce certificate to sign up 
+        // for an Einstein Platform account
+        ContentVersion base64Content = [SELECT Title, VersionData FROM ContentVersion where Title='predictive_services' LIMIT 1];
+        String keyContents = base64Content.VersionData.tostring();
+        keyContents = keyContents.replace('-----BEGIN RSA PRIVATE KEY-----', '');
+        keyContents = keyContents.replace('-----END RSA PRIVATE KEY-----', '');
+        keyContents = keyContents.replace('\n', '');
+
+        // Get a new token
+        JWT jwt = new JWT('RS256');
+        // jwt.cert = 'JWTCert'; // Uncomment this if you used a Salesforce certificate to sign up for an Einstein Platform account
+        jwt.pkcs8 = keyContents; // Comment this if you are using jwt.cert
+        jwt.iss = 'developer.force.com';
+        jwt.sub = 'yourname@example.com';
+        jwt.aud = 'https://api.metamind.io/v1/oauth2/token';
+        jwt.exp = '3600';
+        String access_token = JWTBearerFlow.getAccessToken('https://api.metamind.io/v1/oauth2/token', jwt);
+        return access_token;    
+    }
+
+    public List<Vision.Prediction> getCallVisionUrl() {
+        // Get a new token
+        String access_token = getAccessToken();
+    
+        // Make a prediction using URL to a file
+        return Vision.predictUrl('http://metamind.io/images/generalimage.jpg',access_token,'GeneralImageClassifier');
+    }
+
+    public List<Vision.Prediction> getCallVisionContent() {
+        // Get a new token
+        String access_token = getAccessToken();
+
+        // Make a prediction for an image stored in Salesforce
+        // by passing the file as blob which is then converted to base64 string
+        ContentVersion content = [SELECT Title,VersionData FROM ContentVersion where Id = '06841000000LkfCAAS' LIMIT 1];
+        return Vision.predictBlob(content.VersionData, access_token, 'GeneralImageClassifier');
+    }
+}
 ```
 
-#RSA256 Signed JWT with PEM encoded p12
-```
-JWT jwt = new JWT('RS256');
-jwt.pem = 'MIICXQIBAAKBgQC4U4Bma7kKa0CLU...pem encoded p12 RSA Key';
-jwt.iss = 'your issuer';
-jwt.sub = 'some subject';
-jwt.aud = 'some audience';
-token = jwt.issue();     
-```
-
-#RSA256 Signed JWT with Certificate from Setup 
-```
-JWT jwt = new JWT('RS256');
-jwt.cert = 'JWTKey';
-jwt.iss = 'your issuer';
-jwt.sub = 'some subject';
-jwt.aud = 'some audience';
-token = jwt.issue();     
-```
-
-#Change the default expiration
-By default expiration is 5 minutes (300 seconds).   Change it by passing in a validFor in seconds.  
-
-```
-JWT jwt = new JWT('none');
-jwt.validFor = 60;
-```
-
-#Bearer Flow
-Use the JWT bearer flow for Server to Server applications.  
-
-```
-JWTBearerFlow.getAccessToken('token_endpoint', jwt);
-```
-
-#Salesforce RSA-256 JWT Bearer Flow
-[http://help.salesforce.com/HTViewHelpDoc?id=remoteaccess_oauth_jwt_flow.htm&language=en_US]
-
-```
-JWT jwt = new JWT('RS256');
-jwt.cert = 'JWTKey';
-jwt.iss = '3MVG9PhR6g6B7ps6TYoM9J8TuRwyvkAmDUKainDupyG6eJ92nmK8m4LYueD5Lgtnyv0QoWBrB.YjuWCVj_rl_';
-jwt.sub = 'summer@cmort.org';
-jwt.aud = 'https://login.salesforce.com/services/oauth2/token';
-String access_token = JWTBearerFlow.getAccessToken('https://login.salesforce.com/services/oauth2/token', jwt);
- ```     
-
-#Google RSA-256 JWT Bearer Flow
-[https://developers.google.com/accounts/docs/OAuth2ServiceAccount]
-
-```
-JWT jwt = new JWT('RS256');
-jwt.pem = 'MIICXQIBAAKBgQC4U4Bma7kKa0CLU...pem encoded p12 RSA Key';
-jwt.iss = 'someclient@developer.gserviceaccount.com';
-jwt.sub = 'someuser@some.domain';
-jwt.aud = 'https://accounts.google.com/o/oauth2/token';
-Map<String,String> claims = new  Map<String,String>();
-claims.put('scope','https://www.googleapis.com/auth/drive');
-jwt.claims = claims;
-String access_token = JWTBearerFlow.getAccessToken('https://accounts.google.com/o/oauth2/token', jwt);
+```xml
+<apex:page Controller="VisionController">
+  <apex:form >
+  <apex:pageBlock >
+      <apex:image url="http://metamind.io/images/generalimage.jpg">
+      </apex:image>
+      <br/>
+      <apex:repeat value="{!AccessToken}" var="accessToken">
+          Access Token:<apex:outputText value="{!accessToken}" /><br/>
+    </apex:repeat>
+      <br/>
+      <apex:repeat value="{!callVisionUrl}" var="prediction">
+          <apex:outputText value="{!prediction.label}" />:<apex:outputText value="{!prediction.probability}" /><br/>
+      </apex:repeat>
+  </apex:pageBlock>
+<!--  <apex:pageBlock > -->
+<!--      <apex:repeat value="{!callVisionContent}" var="prediction"> -->
+<!--          <apex:outputText value="{!prediction.label}" />:<apex:outputText value="{!prediction.probability}" /><br/> -->
+<!--    </apex:repeat> -->
+<!--  </apex:pageBlock> -->
+  </apex:form>
+</apex:page>
 ```
